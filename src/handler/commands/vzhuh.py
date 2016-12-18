@@ -8,7 +8,7 @@ class Vzhuh(Base):
 
     @staticmethod
     def execute(bot, command):
-        text = Vzhuh.format_text(' '.join(command.args))
+        text = Vzhuh.format_text('вжух ' + ' '.join(command.args))
         Vzhuh.create_image(text)
 
         bot.send_photo(chat_id=command.chat_id, photo=open('sample-out.png', 'rb'))
