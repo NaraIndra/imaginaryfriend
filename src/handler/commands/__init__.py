@@ -16,6 +16,7 @@ from src.handler.commands.pizza import Pizza
 from src.handler.commands.shaverma import Shaverma
 from src.handler.commands.xkcd import XKCD
 from src.handler.commands.vzhuh import Vzhuh
+from src.handler.commands.animal_offense import AnimalOffense
 
 commands = {}
 for clazz in Base.__subclasses__():
