@@ -1,14 +1,15 @@
 # Config
 import configparser
 
+encoding = 'utf-8'
+
 sections = {
     'bot': ['token', 'name', 'anchors', 'messages', 'purge_interval', 'default_chance', 'spam_stickers'],
-    'grammar': ['end_sentence', 'all'],
+    'grammar': ['chain_length', 'separator', 'stop_word', 'end_sentence', 'all'],
     'logging': ['level'],
     'updates': ['mode'],
     'media_checker': ['lifetime', 'messages'],
-    'redis': ['host', 'port', 'db'],
-    'db': []
+    'redis': ['host', 'port', 'db']
 }
 
 
@@ -18,7 +19,7 @@ def getlist(self, section, option, type=str):
 configparser.ConfigParser.getlist = getlist
 
 config = configparser.ConfigParser()
-config.read('./main.cfg', encoding='utf-8')
+config.read('./main.cfg', encoding=encoding)
 
 for section, options in sections.items():
     if not config.has_section(section):
@@ -32,9 +33,17 @@ for section, options in sections.items():
 from src.redis_c import Redis
 redis = Redis(config)
 
+from src.tokenizer import Tokenizer
+tokenizer = Tokenizer()
+
+from src.repository import *
+trigram_repository = TrigramRepository()
+chance_repository = ChanceRepository()
+media_repository = MediaRepository()
+job_repository = JobRepository()
+
 from src.service import *
-chance_manager = ChanceManager()
-media_checker = MediaUniquenessChecker()
 data_learner = DataLearner()
 reply_generator = ReplyGenerator()
+media_checker = MediaUniquenessChecker()
 chat_purge_queue = ChatPurgeQueue()

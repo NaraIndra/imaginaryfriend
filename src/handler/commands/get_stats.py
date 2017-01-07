@@ -1,5 +1,5 @@
 from .base import Base
-from src.entity.pair import Pair
+from src.config import trigram_repository
 
 
 class GetStats(Base):
@@ -7,4 +7,5 @@ class GetStats(Base):
 
     @staticmethod
     def execute(bot, command):
-        GetStats.reply(bot, command, 'Pairs: {}'.format(Pair.where('chat_id', command.chat_id).count()))
+        pairs_count = trigram_repository.count(command.chat_id)
+        GetStats.reply(bot, command, 'Pairs: {}'.format(pairs_count))

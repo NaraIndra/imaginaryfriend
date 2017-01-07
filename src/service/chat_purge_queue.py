@@ -1,11 +1,8 @@
 import logging
-import json
 
 from datetime import datetime, timedelta
 from telegram.ext import Job
-from src.entity.reply import Reply
-from src.entity.pair import Pair
-from src.config import config, redis
+from src.config import config, trigram_repository, job_repository
 
 
 class ChatPurgeQueue:
@@ -13,11 +10,11 @@ class ChatPurgeQueue:
     Scheduling and execution of chat purge
     """
     def __init__(self):
-        self.redis = redis
-        self.default_interval = config.getfloat('bot', 'purge_interval')
         self.queue = None
         self.jobs = {}
-        self.key = 'purge_queue'
+        self.job_repository = job_repository
+        self.trigram_repository = trigram_repository
+        self.default_interval = config.getfloat('bot', 'purge_interval')
 
     def instance(self, queue):
         self.queue = queue
@@ -26,11 +23,12 @@ class ChatPurgeQueue:
 
         return self
 
-    def add(self, chat_id, interval=None):
+    def add(self, chat_id, interval=None, db=True):
         """
         Schedules purge of chat data
         :param chat_id: ID of chat
         :param interval: Interval in seconds
+        :param db: Should be added to db or not
         """
         interval = interval if interval is not None else self.default_interval
         scheduled_at = datetime.now() + timedelta(seconds=interval)
@@ -42,11 +40,8 @@ class ChatPurgeQueue:
         self.jobs[chat_id] = job
         self.queue.put(job)
 
-        self.redis.instance().hset(
-            self.key,
-            chat_id,
-            json.dumps({'chat_id': chat_id, 'execute_at': scheduled_at.timestamp()})
-        )
+        if db is True:
+            self.job_repository.add(chat_id, scheduled_at)
 
     def remove(self, chat_id):
         """
@@ -61,22 +56,25 @@ class ChatPurgeQueue:
         job = self.jobs.pop(chat_id)
         job.schedule_removal()
 
-        self.redis.instance().hdel(self.key, chat_id)
+        self.job_repository.delete(chat_id)
 
     def __load_existing_jobs(self):
-        existing_jobs = map(lambda j: json.loads(j.decode('utf-8')),
-                            self.redis.instance().hgetall(self.key).values())
+        existing_jobs = self.job_repository.get_all()
 
         for job in existing_jobs:
-            job_datetime = datetime.fromtimestamp(job['execute_at'])
-            current_datetime = datetime.now()
+            interval = self.__timestamp_to_interval(job['execute_at'])
+            self.add(chat_id=job['chat_id'], interval=interval, db=False)
 
-            if current_datetime >= job_datetime:
-                interval = 60
-            else:
-                interval = (job_datetime - current_datetime).total_seconds()
+    def __timestamp_to_interval(self, timestamp):
+        date_time = datetime.fromtimestamp(timestamp)
+        current_datetime = datetime.now()
 
-            self.add(chat_id=job['chat_id'], interval=interval)
+        if current_datetime >= date_time:
+            interval = 60
+        else:
+            interval = (date_time - current_datetime).total_seconds()
+
+        return interval
 
     def __make_purge_job(self, chat_id, interval):
         return Job(self.__purge_callback, interval, repeat=False, context=chat_id)
@@ -86,8 +84,5 @@ class ChatPurgeQueue:
 
         logging.info("Removing chat #%d data..." % chat_id)
 
-        for pairs in Pair.where('chat_id', chat_id).select('id').chunk(500):
-            Reply.where_in('pair_id', pairs.pluck('id').all()).delete()
-        Pair.where('chat_id', chat_id).delete()
-
-        self.redis.instance().hdel(self.key, chat_id)
+        self.trigram_repository.clear(chat_id)
+        self.job_repository.delete(chat_id)

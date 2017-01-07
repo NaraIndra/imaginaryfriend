@@ -1,74 +1,75 @@
-import random
-from src.config import config
-from src.utils import strings_has_equal_letters, capitalize, random_element
-from src.entity.word import Word
-from src.entity.pair import Pair
+from src.config import config, redis, tokenizer, trigram_repository
+from src.utils import strings_has_equal_letters, capitalize
 
 
 class ReplyGenerator:
     """
     Handles generation of responses for user message
     """
+    def __init__(self):
+        self.redis = redis
+        self.tokenizer = tokenizer
+        self.trigram_repository = trigram_repository
+
+        self.max_words = config.getint('grammar', 'max_words')
+        self.max_messages = config.getint('grammar', 'max_messages')
+
+        self.stop_word = config['grammar']['stop_word']
+        self.separator = config['grammar']['separator']
+        self.end_sentence = config['grammar']['end_sentence']
+
     def generate(self, message):
         """
         Generates response based on message words
         :param message: Message
         :return: Response or empty string, if generated response equals to user message
         """
-        result = self.__generate_story(message, message.words, random.randint(0, 2) + 1)
+        words = self.tokenizer.extract_words(message)
+        pairs = [trigram[:-1] for trigram in self.tokenizer.split_to_trigrams(words)]
+        messages = [self.__generate_best_message(chat_id=message.chat_id, pair=pair) for pair in pairs]
+        longest_message = max(messages, key=len) if len(messages) else ''
 
-        if strings_has_equal_letters(result, ''.join(message.words)):
+        if longest_message and strings_has_equal_letters(longest_message, ''.join(words)):
             return ''
 
-        return result
+        return longest_message
 
-    def __generate_story(self, message, words, sentences_count):
-        word_ids = Word.where_in('word', words).lists('id').all()
+    def __generate_best_message(self, chat_id, pair):
+        best_message = ''
+        for _ in range(self.max_messages):
+            generated = self.__generate_sentence(chat_id=chat_id, pair=pair)
+            if len(generated) > len(best_message):
+                best_message = generated
 
-        return ' '.join([self.__generate_sentence(message, word_ids) for _ in range(sentences_count)])
+        return best_message
 
-    def __generate_sentence(self, message, word_ids):
-        sentences = []
-        safety_counter = 50
-        first_word_id = None
-        second_word_id_list = word_ids
+    def __generate_sentence(self, chat_id, pair):
+        gen_words = []
+        key = self.separator.join(pair)
 
-        while safety_counter > 0:
-            pair = Pair.get_random_pair(chat_id=message.chat_id,
-                                        first_id=first_word_id,
-                                        second_id_list=second_word_id_list)
-            replies = getattr(pair, 'replies', [])
-            safety_counter -= 1
+        for _ in range(self.max_words):
+            words = key.split(self.separator)
 
-            if pair is None or len(replies) == 0:
-                continue
+            gen_words.append(words[1] if len(gen_words) == 0 else words[1])
 
-            reply = random.choice(replies.all())
-            first_word_id = pair.second.id
-
-            # FIXME. WARNING! Do not try to fix, it's magic, i have no clue why
-            try:
-                second_word_id_list = [reply.word.id]
-            except AttributeError:
-                second_word_id_list = None
-
-            if len(sentences) == 0:
-                sentences.append(capitalize(pair.second.word))
-                word_ids.remove(pair.second.id)
-
-            # FIXME. WARNING! Do not try to fix, it's magic, i have no clue why
-            try:
-                reply_word = reply.word.word
-            except AttributeError:
-                reply_word = None
-
-            if reply_word is not None:
-                sentences.append(reply_word)
-            else:
+            next_word = self.trigram_repository.get_random_reply(chat_id, key)
+            if next_word is None:
                 break
 
-        sentence = ' '.join(sentences).strip()
-        if sentence[-1:] not in config['grammar']['end_sentence']:
-            sentence += random_element(list(config['grammar']['end_sentence']))
+            key = self.separator.join(words[1:] + [next_word])
 
-        return sentence
+        # Append last word, if it not already in the list
+        last_word = key.split(self.separator)[-1]
+        if last_word not in gen_words:
+            gen_words.append(last_word)
+
+        # Keep only one word, if all words in list are the same
+        if all(w == gen_words[0] for w in gen_words):
+            gen_words = [gen_words[0]]
+
+        gen_words = list(filter(lambda w: w != self.stop_word, gen_words))
+        sentence = ' '.join(gen_words).strip()
+        if sentence[-1:] not in self.end_sentence:
+            sentence += self.tokenizer.random_end_sentence_token()
+
+        return capitalize(sentence)
