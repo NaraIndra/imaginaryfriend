@@ -8,15 +8,11 @@ from src.handler.commands.chance import Chance
 
 from src.handler.commands.butts import Butts
 from src.handler.commands.boobs import Boobs
-from src.handler.commands.boobs_and_cat import BoobsAndCat
 from src.handler.commands.meow import Meow
 from src.handler.commands.woof import Woof
 from src.handler.commands.borscht import Borscht
-from src.handler.commands.pizza import Pizza
-from src.handler.commands.shaverma import Shaverma
 from src.handler.commands.xkcd import XKCD
 from src.handler.commands.vzhuh import Vzhuh
-from src.handler.commands.animal_offense import AnimalOffense
 
 commands = {}
 for clazz in Base.__subclasses__():
